@@ -1,79 +1,55 @@
-# LuminaFlowAI
-<img width="1691" alt="Screenshot 2024-10-06 at 17 14 55" src="https://github.com/user-attachments/assets/6beb62a4-7d06-4afc-b139-78a23c5a91b1">
+# AI Video Creator
 
-LuminaFlowAI is an open-source, web-based video editor that allows users to create dynamic video sequences using images, audio, and various visual effects. Built with React and Next.js, LuminaFlowAI offers an intuitive interface for crafting engaging visual stories.
+AI Video Creator is a powerful web application that leverages artificial intelligence to generate video scripts, images, and audio for content creators. This tool streamlines the video creation process by automating various aspects of content generation.
 
 ## Features
 
-- Image sequencing with customizable durations
-- Audio integration
-- Visual effects (zoom in, zoom out, fade)
-- Real-time preview
-- Responsive design
-- Easy-to-use interface
+- Generate video scripts using AI models (OpenAI GPT, Anthropic Claude)
+- Create AI-generated images for video content (DALL-E, Leonardo AI, Stability AI)
+- Generate audio narration using text-to-speech AI models
+- Customizable video sections with editable titles and content
+- Support for multiple AI providers and models
+- Secure storage of API keys in the browser's local storage
+- Export and import project configurations
+- History management for past generations
+- Dark mode and responsive design
 
-## Getting Started
+## How to Install
 
-### Prerequisites
+To get started with AI Video Creator, follow these steps:
 
-- Node.js (version 14.6.0 or newer)
-- npm or Yarn
+1. Ensure you have [Node.js](https://nodejs.org/) (version 14 or later) and [npm](https://www.npmjs.com/) installed on your system.
 
-### Installation
+2. Open your terminal or command prompt.
 
-1. Clone the repository:
-   ```
-   git clone https://github.com/puppe1990/LuminaFlowAI.git
-   cd LuminaFlowAI
-   ```
+3. Run the following commands:
 
-2. Install dependencies:
-   ```
+   \`\`\`bash
+   # Clone the repository
+   git clone https://github.com/yourusername/ai-video-creator.git
+
+   # Navigate to the project directory
+   cd ai-video-creator
+
+   # Install dependencies
    npm install
-   # or
-   yarn install
-   ```
 
-3. Run the development server:
-   ```
+   # Start the development server
    npm run dev
-   # or
-   yarn dev
-   ```
+   \`\`\`
 
-4. Open [http://localhost:3000](http://localhost:3000) in your browser to see the application.
+4. Open your web browser and visit `http://localhost:3000` to use the application.
 
-## Usage
+## Installation
 
-1. Upload Images: Use the "Upload Images" button to select multiple images for your video sequence.
-2. Add Audio: Upload an audio file to accompany your video.
-3. Edit Timeline: Adjust the duration and effects for each image in the sequence.
-4. Preview: Use the preview panel to watch your creation and make adjustments as needed.
+For detailed installation instructions, please refer to the [How to Install](#how-to-install) section above.
 
-## Contributing
+Remember to set up your environment variables by creating a `.env.local` file in the root directory with your API keys:
 
-We welcome contributions to LuminaFlowAI! Please read our [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+\`\`\`env
+OPENAI_API_KEY=your_openai_api_key
+ANTHROPIC_API_KEY=your_anthropic_api_key
+LEONARDO_API_KEY=your_leonardo_api_key
+STABILITY_API_KEY=your_stability_api_key
+\`\`\`
 
-## License
-
-This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.
-
-## Acknowledgments
-
-- [Next.js](https://nextjs.org/) - The React framework used
-- [shadcn/ui](https://ui.shadcn.com/) - UI components
-- [Lucide](https://lucide.dev/) - Icons
-- [Radix UI](https://www.radix-ui.com/) - Primitive UI components
-
-## Contact
-
-If you have any questions, feel free to reach out to us at [your-email@example.com](mailto:matheus.puppe@gmail.com).
-
-## Roadmap
-
-- [ ] Add more visual effects
-- [ ] Implement video export functionality
-- [ ] Create mobile-responsive design
-- [ ] Add collaborative editing features
-
-Stay tuned for more updates and features!
