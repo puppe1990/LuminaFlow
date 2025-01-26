@@ -36,6 +36,8 @@ import {
 import CryptoJS from "crypto-js"
 import VideoEditor from "@/components/video-editor"
 import { EditorToggle } from "@/components/editor-toggle"
+import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd"
+import type { DropResult } from "react-beautiful-dnd"
 
 const ENCRYPTION_KEY = "your-secret-key" // Replace with a secure key in production
 
@@ -319,15 +321,14 @@ export default function HomePage() {
 
   const handleDeleteImage = (sectionId: string, imageIndex: number) => {
     setSections((prevSections) =>
-      prevSections.map((section) =>
-        section.id === sectionId
-          ? {
-              ...section,
-              imageUrls: (section.imageUrls || []).filter((_, index) => index !== imageIndex),
-              imageData: (section.imageData || []).filter((_, index) => index !== imageIndex),
-            }
-          : section,
-      ),
+      prevSections.map((section) => {
+        if (section.id === sectionId) {
+          const newImageUrls = (section.imageUrls || []).filter((_, index) => index !== imageIndex)
+          const newImageData = (section.imageData || []).filter((_, index) => index !== imageIndex)
+          return { ...section, imageUrls: newImageUrls, imageData: newImageData }
+        }
+        return section
+      }),
     )
 
     // Update the history by removing the image data
@@ -752,6 +753,22 @@ export default function HomePage() {
     localStorage.setItem("generationHistory", JSON.stringify(history))
   }
 
+  const handleImageReorder = (sectionId: string, result: DropResult) => {
+    if (!result.destination) return
+
+    setSections((prevSections) =>
+      prevSections.map((section) => {
+        if (section.id === sectionId) {
+          const newImageUrls = Array.from(section.imageUrls || [])
+          const [reorderedItem] = newImageUrls.splice(result.source.index, 1)
+          newImageUrls.splice(result.destination.index, 0, reorderedItem)
+          return { ...section, imageUrls: newImageUrls }
+        }
+        return section
+      }),
+    )
+  }
+
   return (
     <main className="container mx-auto px-4 py-8">
       {editorMode === "script" ? (
@@ -890,6 +907,8 @@ export default function HomePage() {
                 onGenerateAllImages={handleGenerateAllImages}
                 onGenerateAllAudios={handleGenerateAllAudios}
                 onReorderSections={handleReorderSections}
+                onReorderImages={handleImageReorder}
+                onDeleteSectionImage={handleDeleteImage}
               />
             </div>
           )}

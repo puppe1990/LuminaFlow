@@ -37,6 +37,8 @@ interface ScriptSectionsProps {
   onGenerateAllImages: () => Promise<void>
   onGenerateAllAudios: () => Promise<void>
   onReorderSections: (newOrder: Section[]) => void
+  onReorderImages: (sectionId: string, result: DropResult) => void
+  onDeleteSectionImage: (sectionId: string, imageIndex: number) => void
 }
 
 export function ScriptSections({
@@ -56,6 +58,8 @@ export function ScriptSections({
   onGenerateAllImages,
   onGenerateAllAudios,
   onReorderSections,
+  onReorderImages,
+  onDeleteSectionImage,
 }: ScriptSectionsProps) {
   const [editingImageSuggestion, setEditingImageSuggestion] = useState<{ sectionId: string; index: number } | null>(
     null,
@@ -352,10 +356,13 @@ export function ScriptSections({
                               ref={(el) => (fileInputRef.current[section.id] = el)}
                               style={{ display: "none" }}
                               accept="image/*"
+                              multiple
                               onChange={(e) => {
-                                const file = e.target.files?.[0]
-                                if (file) {
-                                  handleUploadImage(section.id, file, section.imageUrls.length)
+                                const files = e.target.files
+                                if (files) {
+                                  Array.from(files).forEach((file) => {
+                                    handleUploadImage(section.id, file, section.imageUrls.length)
+                                  })
                                 }
                               }}
                             />
@@ -372,23 +379,51 @@ export function ScriptSections({
                               }}
                             />
                           </div>
-                          {(section.imageUrls || []).map((imageUrl, imgIndex) => (
-                            <div key={imgIndex} className="mt-4 relative">
-                              <img
-                                src={imageUrl || "/placeholder.svg"}
-                                alt={`Generated or uploaded image ${imgIndex + 1}`}
-                                className="rounded-md w-full"
-                              />
-                              <Button
-                                size="icon"
-                                variant="destructive"
-                                className="absolute top-2 right-2"
-                                onClick={() => handleDeleteImage(section.id, imgIndex)}
-                              >
-                                <X className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          ))}
+                          {section.imageUrls && section.imageUrls.length > 0 && (
+                            <DragDropContext onDragEnd={(result) => onReorderImages(section.id, result)}>
+                              <Droppable droppableId={`section-${section.id}-images`} direction="horizontal">
+                                {(provided) => (
+                                  <div
+                                    {...provided.droppableProps}
+                                    ref={provided.innerRef}
+                                    className="flex flex-wrap gap-2 mt-4"
+                                  >
+                                    {section.imageUrls.map((imageUrl, index) => (
+                                      <Draggable
+                                        key={`${section.id}-image-${index}`}
+                                        draggableId={`${section.id}-image-${index}`}
+                                        index={index}
+                                      >
+                                        {(provided) => (
+                                          <div
+                                            ref={provided.innerRef}
+                                            {...provided.draggableProps}
+                                            {...provided.dragHandleProps}
+                                            className="relative"
+                                          >
+                                            <img
+                                              src={imageUrl || "/placeholder.svg"}
+                                              alt={`Generated or uploaded image ${index + 1}`}
+                                              className="rounded-md w-24 h-24 object-cover"
+                                            />
+                                            <Button
+                                              size="icon"
+                                              variant="destructive"
+                                              className="absolute top-1 right-1"
+                                              onClick={() => onDeleteSectionImage(section.id, index)}
+                                            >
+                                              <X className="h-4 w-4" />
+                                            </Button>
+                                          </div>
+                                        )}
+                                      </Draggable>
+                                    ))}
+                                    {provided.placeholder}
+                                  </div>
+                                )}
+                              </Droppable>
+                            </DragDropContext>
+                          )}
                           {section.audioUrl && (
                             <div className="mt-4 relative">
                               <audio controls src={section.audioUrl} className="w-full" />

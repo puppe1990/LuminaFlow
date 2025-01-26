@@ -49,6 +49,7 @@ export default function VideoEditor({ sections = [] }: VideoEditorProps) {
   const [isAudioOperationInProgress, setIsAudioOperationInProgress] = useState(false)
   const [volume, setVolume] = useState(1) // 1 is max volume, 0 is muted
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [fullSizeImage, setFullSizeImage] = useState<string | null>(null) // Added state for full-size image modal
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const audioRefs = useRef<{ [key: string]: HTMLAudioElement | null }>({})
@@ -64,51 +65,53 @@ export default function VideoEditor({ sections = [] }: VideoEditorProps) {
   const totalDuration = calculateTotalAudioDuration()
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (file) {
-      const url = URL.createObjectURL(file)
-      const newClip: MediaClip = {
-        id: Math.random().toString(36).substr(2, 9),
-        type: file.type.startsWith("audio") ? "audio" : "image",
-        url,
-        duration: 5, // Default duration, will be updated for audio files
-        startTime: file.type.startsWith("audio")
-          ? audioClips.reduce((acc, clip) => Math.max(acc, clip.startTime + clip.duration), 0)
-          : imageClips.reduce((acc, clip) => Math.max(acc, clip.startTime + clip.duration), 0),
-        title: file.name,
-      }
+    const files = event.target.files
+    if (files) {
+      Array.from(files).forEach((file) => {
+        const url = URL.createObjectURL(file)
+        const newClip: MediaClip = {
+          id: Math.random().toString(36).substr(2, 9),
+          type: file.type.startsWith("audio") ? "audio" : "image",
+          url,
+          duration: 5, // Default duration, will be updated for audio files
+          startTime: file.type.startsWith("audio")
+            ? audioClips.reduce((acc, clip) => Math.max(acc, clip.startTime + clip.duration), 0)
+            : imageClips.reduce((acc, clip) => Math.max(acc, clip.startTime + clip.duration), 0),
+          title: file.name,
+        }
 
-      if (newClip.type === "audio") {
-        const audio = new Audio(url)
-        audio.addEventListener("loadedmetadata", () => {
-          newClip.duration = audio.duration
-          setAudioClips((prevClips) => [...prevClips, newClip])
-          console.log(`Audio clip loaded: ${newClip.id}, Duration: ${newClip.duration}`)
-        })
-        audio.addEventListener("error", (e) => {
-          console.error(`Error loading audio clip ${newClip.id}:`, e)
-          toast({
-            title: "Audio Load Error",
-            description: `Failed to load audio: ${file.name}. Please try again.`,
-            variant: "destructive",
+        if (newClip.type === "audio") {
+          const audio = new Audio(url)
+          audio.addEventListener("loadedmetadata", () => {
+            newClip.duration = audio.duration
+            setAudioClips((prevClips) => [...prevClips, newClip])
+            console.log(`Audio clip loaded: ${newClip.id}, Duration: ${newClip.duration}`)
           })
-        })
-      } else {
-        const img = new Image()
-        img.onload = () => {
-          setImageClips((prevClips) => [...prevClips, newClip])
-          console.log(`Image clip loaded: ${newClip.id}`)
-        }
-        img.onerror = (e) => {
-          console.error(`Error loading image clip ${newClip.id}:`, e)
-          toast({
-            title: "Image Load Error",
-            description: `Failed to load image: ${file.name}. Please try again.`,
-            variant: "destructive",
+          audio.addEventListener("error", (e) => {
+            console.error(`Error loading audio clip ${newClip.id}:`, e)
+            toast({
+              title: "Audio Load Error",
+              description: `Failed to load audio: ${file.name}. Please try again.`,
+              variant: "destructive",
+            })
           })
+        } else {
+          const img = new Image()
+          img.onload = () => {
+            setImageClips((prevClips) => [...prevClips, newClip])
+            console.log(`Image clip loaded: ${newClip.id}`)
+          }
+          img.onerror = (e) => {
+            console.error(`Error loading image clip ${newClip.id}:`, e)
+            toast({
+              title: "Image Load Error",
+              description: `Failed to load image: ${file.name}. Please try again.`,
+              variant: "destructive",
+            })
+          }
+          img.src = url
         }
-        img.src = url
-      }
+      })
     }
   }
 
@@ -394,6 +397,11 @@ export default function VideoEditor({ sections = [] }: VideoEditorProps) {
     }
   }, [])
 
+  const openFullSizeImage = (imageUrl: string) => {
+    // Added function to open full-size image modal
+    setFullSizeImage(imageUrl)
+  }
+
   useEffect(() => {
     const handleFullscreenChange = () => {
       setIsFullscreen(!!document.fullscreenElement)
@@ -571,6 +579,7 @@ export default function VideoEditor({ sections = [] }: VideoEditorProps) {
             onChange={handleFileUpload}
             accept="image/*,audio/*"
             className="hidden"
+            multiple
           />
         </div>
 
@@ -588,8 +597,13 @@ export default function VideoEditor({ sections = [] }: VideoEditorProps) {
                   width: `${(clip.duration / totalDuration) * 100}%`,
                   left: `${(clip.startTime / totalDuration) * 100}%`,
                 }}
-                onClick={() => setSelectedClip(clip.id)}
+                onClick={() => openFullSizeImage(clip.url)} // Modified to open full-size image modal
               >
+                <div
+                  className="absolute top-0 left-0 right-0 bottom-0 bg-cover bg-center"
+                  style={{ backgroundImage: `url(${clip.url})` }}
+                />
+                <div className="absolute top-0 left-0 right-0 bottom-0 bg-black bg-opacity-50" />
                 <ImageIcon className="absolute top-2 left-2 h-4 w-4" />
                 <Button
                   variant="ghost"
@@ -642,6 +656,20 @@ export default function VideoEditor({ sections = [] }: VideoEditorProps) {
           </div>
         </div>
       </Card>
+      {fullSizeImage && ( // Added full-size image modal
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+          onClick={() => setFullSizeImage(null)}
+        >
+          <div className="max-w-4xl max-h-4xl">
+            <img
+              src={fullSizeImage || "/placeholder.svg"}
+              alt="Full size"
+              className="max-w-full max-h-full object-contain"
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
