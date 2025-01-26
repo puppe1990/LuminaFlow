@@ -1,6 +1,7 @@
 # AI Video Creator
 
 AI Video Creator is a powerful web application that leverages artificial intelligence to generate video scripts, images, and audio for content creators. This tool streamlines the video creation process by automating various aspects of content generation.
+<img width="1710" alt="Screenshot 2025-01-25 at 23 46 15" src="https://github.com/user-attachments/assets/7e98da66-f498-420f-aee2-057c5e9c8a68" />
 
 ## Features
 
