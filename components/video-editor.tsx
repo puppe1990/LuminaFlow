@@ -17,9 +17,13 @@ import {
   Plus,
   X,
   ImportIcon as FileImport,
+  Volume2,
+  Maximize,
+  Minimize,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { Section } from "@/types"
+import { useToast } from "@/components/ui/use-toast"
 
 interface MediaClip {
   id: string
@@ -36,16 +40,22 @@ interface VideoEditorProps {
 }
 
 export default function VideoEditor({ sections = [] }: VideoEditorProps) {
+  const { toast } = useToast()
   const [imageClips, setImageClips] = useState<MediaClip[]>([])
   const [audioClips, setAudioClips] = useState<MediaClip[]>([])
   const [currentTime, setCurrentTime] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [selectedClip, setSelectedClip] = useState<string | null>(null)
+  const [isAudioOperationInProgress, setIsAudioOperationInProgress] = useState(false)
+  const [volume, setVolume] = useState(1) // 1 is max volume, 0 is muted
+  const [isFullscreen, setIsFullscreen] = useState(false)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const audioRefs = useRef<{ [key: string]: HTMLAudioElement | null }>({})
   const imageRefs = useRef<{ [key: string]: HTMLImageElement }>({})
   const animationFrameRef = useRef<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const audioOperationTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   const calculateTotalAudioDuration = useCallback(() => {
     return audioClips.reduce((total, clip) => total + clip.duration, 0)
@@ -73,23 +83,67 @@ export default function VideoEditor({ sections = [] }: VideoEditorProps) {
         audio.addEventListener("loadedmetadata", () => {
           newClip.duration = audio.duration
           setAudioClips((prevClips) => [...prevClips, newClip])
+          console.log(`Audio clip loaded: ${newClip.id}, Duration: ${newClip.duration}`)
+        })
+        audio.addEventListener("error", (e) => {
+          console.error(`Error loading audio clip ${newClip.id}:`, e)
+          toast({
+            title: "Audio Load Error",
+            description: `Failed to load audio: ${file.name}. Please try again.`,
+            variant: "destructive",
+          })
         })
       } else {
         const img = new Image()
         img.onload = () => {
           setImageClips((prevClips) => [...prevClips, newClip])
+          console.log(`Image clip loaded: ${newClip.id}`)
+        }
+        img.onerror = (e) => {
+          console.error(`Error loading image clip ${newClip.id}:`, e)
+          toast({
+            title: "Image Load Error",
+            description: `Failed to load image: ${file.name}. Please try again.`,
+            variant: "destructive",
+          })
         }
         img.src = url
       }
     }
   }
 
+  const resetAudioOperationState = useCallback(() => {
+    if (audioOperationTimeoutRef.current) {
+      clearTimeout(audioOperationTimeoutRef.current)
+    }
+    setIsAudioOperationInProgress(false)
+  }, [])
+
   const handlePlayPause = () => {
+    if (isAudioOperationInProgress) {
+      console.log("Audio operation in progress, forcing reset")
+      resetAudioOperationState()
+    }
+
     setIsPlaying((prevIsPlaying) => {
       if (prevIsPlaying) {
         pauseAllAudio()
       } else {
-        playAudioFromCurrentTime()
+        const allAudioReady = audioClips.every((clip) => {
+          const audio = audioRefs.current[clip.id]
+          return audio && audio.readyState >= 4 // HAVE_ENOUGH_DATA
+        })
+        if (allAudioReady) {
+          playAudioFromCurrentTime()
+        } else {
+          console.warn("Not all audio clips are ready for playback")
+          toast({
+            title: "Audio Not Ready",
+            description: "Please wait for all audio to load before playing.",
+            variant: "warning",
+          })
+          return false // Don't start playing if audio isn't ready
+        }
       }
       return !prevIsPlaying
     })
@@ -101,6 +155,7 @@ export default function VideoEditor({ sections = [] }: VideoEditorProps) {
     } else {
       setAudioClips(audioClips.filter((clip) => clip.id !== clipId))
     }
+    console.log(`Deleted ${type} clip: ${clipId}`)
   }
 
   const updateImageDurations = (images: MediaClip[], audios: MediaClip[]) => {
@@ -121,12 +176,13 @@ export default function VideoEditor({ sections = [] }: VideoEditorProps) {
 
     setImageClips(updatedImages)
     setAudioClips(audios)
+    console.log("Updated image durations based on audio clips")
   }
 
   const importFromSections = () => {
     const newImageClips: MediaClip[] = []
     const newAudioClips: MediaClip[] = []
-    const currentImageStartTime = 0
+    let currentImageStartTime = 0
     let currentAudioStartTime = 0
 
     sections.forEach((section) => {
@@ -136,11 +192,12 @@ export default function VideoEditor({ sections = [] }: VideoEditorProps) {
             id: `image-${section.id}-${index}`,
             type: "image",
             url: imageUrl,
-            duration: 0, // Will be adjusted later
+            duration: 5, // Default duration, will be adjusted later
             startTime: currentImageStartTime,
             title: `${section.title} (Image ${index + 1})`,
             sectionId: section.id,
           })
+          currentImageStartTime += 5 // Increment by default duration
         })
       }
 
@@ -161,12 +218,22 @@ export default function VideoEditor({ sections = [] }: VideoEditorProps) {
           newAudioClip.duration = audio.duration
           currentAudioStartTime += audio.duration
           updateImageDurations(newImageClips, newAudioClips)
+          console.log(`Loaded audio for section ${section.id}, Duration: ${audio.duration}`)
+        })
+        audio.addEventListener("error", (e) => {
+          console.error(`Error loading audio for section ${section.id}:`, e)
+          toast({
+            title: "Audio Load Error",
+            description: `Failed to load audio for section: ${section.title}. Please try reimporting.`,
+            variant: "destructive",
+          })
         })
       }
     })
 
     setImageClips(newImageClips)
     setAudioClips(newAudioClips)
+    console.log("Imported clips from sections", { imageCount: newImageClips.length, audioCount: newAudioClips.length })
   }
 
   const updatePreview = useCallback(() => {
@@ -204,46 +271,139 @@ export default function VideoEditor({ sections = [] }: VideoEditorProps) {
         if (currentTime >= clip.startTime && currentTime < clip.startTime + clip.duration) {
           if (audio.paused && isPlaying) {
             audio.currentTime = currentTime - clip.startTime
-            audio.play().catch((error) => console.error("Error playing audio:", error))
+            audio
+              .play()
+              .then(() => {
+                console.log(`Successfully started playing audio clip ${clip.id}`)
+              })
+              .catch((error) => {
+                console.error(`Error playing audio clip ${clip.id}:`, error.name, error.message, error)
+                toast({
+                  title: "Audio Playback Error",
+                  description: `Failed to play audio: ${clip.title}. Error: ${error.message || "Unknown error"}`,
+                  variant: "destructive",
+                })
+              })
           }
         } else {
-          audio.pause()
-          audio.currentTime = 0
+          if (!audio.paused) {
+            audio.pause()
+            console.log(`Paused audio clip ${clip.id}`)
+          }
         }
+      } else {
+        console.warn(`Audio element not found for clip ${clip.id}`)
       }
     })
-  }, [currentTime, isPlaying, audioClips])
+  }, [currentTime, isPlaying, audioClips, toast])
 
   const animate = useCallback(() => {
     if (isPlaying) {
       setCurrentTime((prevTime) => {
         const newTime = prevTime + 1 / 60 // Assuming 60 FPS
-        return newTime > totalDuration ? totalDuration : newTime
+        return newTime > totalDuration ? 0 : newTime // Loop back to the start if we reach the end
       })
     }
     updatePreview()
-    updateAudioPlayback()
+    try {
+      updateAudioPlayback()
+    } catch (error) {
+      console.error("Error updating audio playback:", error)
+      toast({
+        title: "Audio Sync Error",
+        description: "An error occurred while syncing audio. Please try reloading the editor.",
+        variant: "destructive",
+      })
+    }
     animationFrameRef.current = requestAnimationFrame(animate)
-  }, [isPlaying, totalDuration, updatePreview, updateAudioPlayback])
+  }, [isPlaying, totalDuration, updatePreview, updateAudioPlayback, toast])
 
   const pauseAllAudio = useCallback(() => {
-    audioClips.forEach((clip) => {
-      const audio = audioRefs.current[clip.id]
-      if (audio) {
-        audio.pause()
-      }
-    })
-  }, [audioClips])
+    resetAudioOperationState()
+    setIsAudioOperationInProgress(true)
+
+    audioOperationTimeoutRef.current = setTimeout(() => {
+      audioClips.forEach((clip) => {
+        const audio = audioRefs.current[clip.id]
+        if (audio) {
+          audio.pause()
+        }
+      })
+      resetAudioOperationState()
+      console.log("Paused all audio clips")
+    }, 100) // 100ms debounce
+  }, [audioClips, resetAudioOperationState])
 
   const playAudioFromCurrentTime = useCallback(() => {
-    audioClips.forEach((clip) => {
-      const audio = audioRefs.current[clip.id]
-      if (audio && currentTime >= clip.startTime && currentTime < clip.startTime + clip.duration) {
-        audio.currentTime = currentTime - clip.startTime
-        audio.play().catch((error) => console.error("Error playing audio:", error))
+    resetAudioOperationState()
+    setIsAudioOperationInProgress(true)
+
+    audioOperationTimeoutRef.current = setTimeout(() => {
+      audioClips.forEach((clip) => {
+        const audio = audioRefs.current[clip.id]
+        if (audio && currentTime >= clip.startTime && currentTime < clip.startTime + clip.duration) {
+          audio.currentTime = currentTime - clip.startTime
+          audio
+            .play()
+            .then(() => {
+              console.log(`Successfully started playing audio clip ${clip.id} from time ${audio.currentTime}`)
+            })
+            .catch((error) => {
+              if (error.name !== "AbortError") {
+                console.error(
+                  `Error playing audio clip ${clip.id} from current time:`,
+                  error.name,
+                  error.message,
+                  error,
+                )
+                toast({
+                  title: "Audio Playback Error",
+                  description: `Failed to play audio: ${clip.title}. Error: ${error.message || "Unknown error"}`,
+                  variant: "destructive",
+                })
+              } else {
+                console.log(`Play operation aborted for audio clip ${clip.id}`)
+              }
+            })
+        }
+      })
+      resetAudioOperationState()
+    }, 100) // 100ms debounce
+
+    console.log(`Attempting to play audio from current time: ${currentTime}`)
+  }, [audioClips, currentTime, toast, resetAudioOperationState])
+
+  const adjustVolume = useCallback((newVolume: number) => {
+    setVolume(newVolume)
+    Object.values(audioRefs.current).forEach((audio) => {
+      if (audio) {
+        audio.volume = newVolume
       }
     })
-  }, [audioClips, currentTime])
+  }, [])
+
+  const toggleFullscreen = useCallback(() => {
+    if (!containerRef.current) return
+
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen().catch((err) => {
+        console.error(`Error attempting to enable fullscreen: ${err.message}`)
+      })
+    } else {
+      document.exitFullscreen()
+    }
+  }, [])
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement)
+    }
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange)
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange)
+    }
+  }, [])
 
   useEffect(() => {
     // Preload images
@@ -254,6 +414,15 @@ export default function VideoEditor({ sections = [] }: VideoEditorProps) {
         img.onload = () => {
           imageRefs.current[clip.id] = img
           updatePreview()
+          console.log(`Image loaded for clip ${clip.id}`)
+        }
+        img.onerror = (e) => {
+          console.error(`Error loading image for clip ${clip.id}:`, e)
+          toast({
+            title: "Image Load Error",
+            description: `Failed to load image: ${clip.title}. Please try reuploading.`,
+            variant: "destructive",
+          })
         }
         img.src = clip.url
       }
@@ -264,6 +433,19 @@ export default function VideoEditor({ sections = [] }: VideoEditorProps) {
       if (!audioRefs.current[clip.id]) {
         const audio = new Audio(clip.url)
         audio.preload = "auto"
+        audio.volume = volume // Set initial volume
+        audio.addEventListener("canplaythrough", () => {
+          console.log(`Audio clip ${clip.id} is ready to play`)
+        })
+        audio.addEventListener("error", (e) => {
+          const error = e.target as HTMLAudioElement
+          console.error(`Error loading audio clip ${clip.id}:`, error.error)
+          toast({
+            title: "Audio Load Error",
+            description: `Failed to load audio: ${clip.title}. Error: ${error.error?.message || "Unknown error"}`,
+            variant: "destructive",
+          })
+        })
         audioRefs.current[clip.id] = audio
       }
     })
@@ -273,6 +455,7 @@ export default function VideoEditor({ sections = [] }: VideoEditorProps) {
       imageClips.forEach((clip) => {
         if (!imageClips.some((c) => c.id === clip.id)) {
           delete imageRefs.current[clip.id]
+          console.log(`Cleaned up image reference for clip ${clip.id}`)
         }
       })
       audioClips.forEach((clip) => {
@@ -282,11 +465,16 @@ export default function VideoEditor({ sections = [] }: VideoEditorProps) {
             audio.pause()
             audio.src = ""
             delete audioRefs.current[clip.id]
+            console.log(`Cleaned up audio reference for clip ${clip.id}`)
           }
         }
       })
+      if (audioOperationTimeoutRef.current) {
+        clearTimeout(audioOperationTimeoutRef.current)
+      }
+      resetAudioOperationState()
     }
-  }, [imageClips, audioClips, updatePreview])
+  }, [imageClips, audioClips, updatePreview, toast, resetAudioOperationState, volume])
 
   useEffect(() => {
     animationFrameRef.current = requestAnimationFrame(animate)
@@ -299,7 +487,7 @@ export default function VideoEditor({ sections = [] }: VideoEditorProps) {
   }, [animate, pauseAllAudio])
 
   return (
-    <div className="flex flex-col h-full bg-background">
+    <div className="flex flex-col h-full bg-background" ref={containerRef}>
       {/* Preview Window */}
       <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
         <canvas ref={canvasRef} width={1280} height={720} className="w-full h-full" />
@@ -347,6 +535,19 @@ export default function VideoEditor({ sections = [] }: VideoEditorProps) {
         <span className="text-sm text-muted-foreground">
           {formatTime(currentTime)} {"/"} {formatTime(totalDuration)}
         </span>
+        <div className="flex items-center ml-4">
+          <Volume2 className="h-4 w-4 mr-2" />
+          <Slider
+            value={[volume]}
+            max={1}
+            step={0.01}
+            className="w-24"
+            onValueChange={(value) => adjustVolume(value[0])}
+          />
+        </div>
+        <Button onClick={toggleFullscreen} variant="outline" size="icon">
+          {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
+        </Button>
       </div>
 
       {/* Timeline */}
