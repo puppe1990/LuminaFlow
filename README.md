@@ -4,52 +4,58 @@ LuminaFlowAI is a powerful web application that leverages artificial intelligenc
 
 ## Features
 
-- Generate video scripts using AI models (OpenAI GPT, Anthropic Claude)
-- Create AI-generated images for video content (DALL-E, Leonardo AI, Stability AI)
-- Generate audio narration using text-to-speech AI models
+- AI-powered video script generation using OpenAI GPT and Anthropic Claude
+- Automatic image creation with DALL-E, Leonardo AI, and Stability AI
+- Text-to-speech audio narration using advanced AI models
 - Customizable video sections with editable titles and content
-- Support for multiple AI providers and models
-- Secure storage of API keys in the browser's local storage
-- Export and import project configurations
-- History management for past generations
-- Dark mode and responsive design
+- Multi-provider AI model support
+- Secure local storage for API keys
+- Project configuration export/import functionality
+- Comprehensive generation history tracking
+- Modern UI with dark mode and responsive design
 
-## How to Install
+## Prerequisites
 
-To get started with LuminaFlowAI, follow these steps:
-
-1. Ensure you have [Node.js](https://nodejs.org/) (version 14 or later) and [npm](https://www.npmjs.com/) installed on your system.
-
-2. Open your terminal or command prompt.
-
-3. Run the following commands:
-
-   \`\`\`bash
-   # Clone the repository
-   git clone https://github.com/yourusername/LuminaFlowAI.git
-
-   # Navigate to the project directory
-   cd LuminaFlowAI
-
-   # Install dependencies
-   npm install
-
-   # Start the development server
-   npm run dev
-   \`\`\`
-
-4. Open your web browser and visit `http://localhost:3000` to use the application.
+- Node.js (version 14 or later)
+- npm (Node Package Manager)
 
 ## Installation
 
-For detailed installation instructions, please refer to the [How to Install](#how-to-install) section above.
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/LuminaFlowAI.git
+   cd LuminaFlowAI
+   ```
 
-Remember to set up your environment variables by creating a `.env.local` file in the root directory with your API keys:
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
 
-\`\`\`env
-OPENAI_API_KEY=your_openai_api_key
-ANTHROPIC_API_KEY=your_anthropic_api_key
-LEONARDO_API_KEY=your_leonardo_api_key
-STABILITY_API_KEY=your_stability_api_key
-\`\`\`
+3. Configure environment variables:
+   Create a `.env.local` file in the project root with your API keys:
+   ```env
+   OPENAI_API_KEY=your_openai_api_key
+   ANTHROPIC_API_KEY=your_anthropic_api_key
+   LEONARDO_API_KEY=your_leonardo_api_key
+   STABILITY_API_KEY=your_stability_api_key
+   ```
 
+4. Start the development server:
+   ```bash
+   npm run dev
+   ```
+
+5. Open your browser and navigate to `http://localhost:3000`
+
+## Contributing
+
+We welcome contributions! Please feel free to submit pull requests or open issues on our GitHub repository.
+
+## License
+
+MIT
+
+## Support
+
+For questions, bug reports, or feature requests, please open an issue on GitHub.z
