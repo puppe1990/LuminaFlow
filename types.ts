@@ -2,15 +2,18 @@ export interface Section {
   id: string
   title: string
   content: string
-  imageSuggestion: string
-  imageUrl?: string
-  imageData?: string
+  imageSuggestions: string[]
+  imageUrls: string[]
+  imageData?: string[]
+  audioUrl?: string
+  audioData?: string
 }
 
 export interface AIConfig {
   provider: string
   apiKey: string
   model: string
+  baseUrl?: string // Add this line to support custom base URLs
 }
 
 export interface VideoGenerationConfig {

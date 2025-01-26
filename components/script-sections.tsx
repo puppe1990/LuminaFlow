@@ -4,10 +4,21 @@ import { useState, useRef } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { Play, Volume2, ImageIcon, Trash2, Upload, Edit2, X, Headphones } from 'lucide-react'
+import { Play, ImageIcon, Trash2, Upload, Edit2, X, Headphones, Loader2, Music, GripVertical, Plus } from "lucide-react"
 import type { Section, AIConfig } from "@/types"
 import { useToast } from "@/components/ui/use-toast"
 import { Input } from "@/components/ui/input"
+import { DragDropContext, Droppable, Draggable, type DropResult } from "react-beautiful-dnd"
+
+interface Section {
+  id: string
+  title: string
+  content: string
+  imageSuggestion?: string
+  imageSuggestions: string[]
+  imageUrls: string[]
+  audioUrl?: string
+}
 
 interface ScriptSectionsProps {
   sections: Section[]
@@ -15,11 +26,17 @@ interface ScriptSectionsProps {
   onGenerateAudio: (sectionId: string, text: string, config: AIConfig) => Promise<string>
   onDeleteSection: (sectionId: string) => void
   onUploadImage: (sectionId: string, file: File) => Promise<string>
-  onDeleteImage: (sectionId: string) => void
+  onUploadAudio: (sectionId: string, file: File) => Promise<string>
+  onDeleteImage: (sectionId: string, imageIndex: number) => void
+  onDeleteAudio: (sectionId: string) => void
   imageConfig: AIConfig
   audioConfig: AIConfig
   onUpdateSectionTitle: (sectionId: string, newTitle: string) => void
-  onUpdateImageSuggestion: (sectionId: string, newSuggestion: string) => void
+  onUpdateImageSuggestion: (sectionId: string, newSuggestion: string, index: number) => void
+  onAddImageSuggestion: (sectionId: string) => void
+  onGenerateAllImages: () => Promise<void>
+  onGenerateAllAudios: () => Promise<void>
+  onReorderSections: (newOrder: Section[]) => void
 }
 
 export function ScriptSections({
@@ -28,26 +45,31 @@ export function ScriptSections({
   onGenerateAudio,
   onDeleteSection,
   onUploadImage,
+  onUploadAudio,
   onDeleteImage,
+  onDeleteAudio,
   imageConfig,
   audioConfig,
   onUpdateSectionTitle,
   onUpdateImageSuggestion,
+  onAddImageSuggestion,
+  onGenerateAllImages,
+  onGenerateAllAudios,
+  onReorderSections,
 }: ScriptSectionsProps) {
-  const [playingAudio, setPlayingAudio] = useState<string | null>(null)
-  const [generatingImage, setGeneratingImage] = useState<string | null>(null)
+  const [editingImageSuggestion, setEditingImageSuggestion] = useState<{ sectionId: string; index: number } | null>(
+    null,
+  )
+  const [generatingImage, setGeneratingImage] = useState<{ sectionId: string; index: number } | null>(null)
   const [generatingAudio, setGeneratingAudio] = useState<string | null>(null)
-  const [uploadingImage, setUploadingImage] = useState<string | null>(null)
-  const [editingImageSuggestion, setEditingImageSuggestion] = useState<string | null>(null)
+  const [uploadingImage, setUploadingImage] = useState<{ sectionId: string; index: number } | null>(null)
+  const [uploadingAudio, setUploadingAudio] = useState<string | null>(null)
   const { toast } = useToast()
-  const fileInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({})
+  const fileInputRef = useRef<{ [key: string]: HTMLInputElement | null }>({})
+  const audioInputRef = useRef<{ [key: string]: HTMLInputElement | null }>({})
 
-  const handlePlayAudio = (sectionId: string) => {
-    setPlayingAudio(sectionId === playingAudio ? null : sectionId)
-  }
-
-  const handleGenerateImage = async (sectionId: string, imageSuggestion: string) => {
-    setGeneratingImage(sectionId)
+  const handleGenerateImage = async (sectionId: string, imageSuggestion: string, index: number) => {
+    setGeneratingImage({ sectionId, index })
     try {
       await onGenerateImage(sectionId, imageSuggestion, imageConfig)
       toast({
@@ -73,17 +95,19 @@ export function ScriptSections({
         description: "The audio has been successfully generated.",
       })
     } catch (error) {
+      console.error("Failed to generate audio:", error)
       toast({
         title: "Audio Generation Failed",
-        description: "Failed to generate the audio. Please try again.",
+        description: error instanceof Error ? error.message : "An unknown error occurred",
         variant: "destructive",
       })
+    } finally {
+      setGeneratingAudio(null)
     }
-    setGeneratingAudio(null)
   }
 
-  const handleUploadImage = async (sectionId: string, file: File) => {
-    setUploadingImage(sectionId)
+  const handleUploadImage = async (sectionId: string, file: File, index: number) => {
+    setUploadingImage({ sectionId, index })
     try {
       await onUploadImage(sectionId, file)
       toast({
@@ -100,141 +124,295 @@ export function ScriptSections({
     setUploadingImage(null)
   }
 
-  const handleEditImageSuggestion = (sectionId: string, currentSuggestion: string) => {
-    setEditingImageSuggestion(sectionId)
+  const handleUploadAudio = async (sectionId: string, file: File) => {
+    setUploadingAudio(sectionId)
+    try {
+      await onUploadAudio(sectionId, file)
+      toast({
+        title: "Audio Uploaded",
+        description: "The audio has been successfully uploaded.",
+      })
+    } catch (error) {
+      toast({
+        title: "Audio Upload Failed",
+        description: "Failed to upload the audio. Please try again.",
+        variant: "destructive",
+      })
+    }
+    setUploadingAudio(null)
   }
 
-  const handleSaveImageSuggestion = (sectionId: string, newSuggestion: string) => {
-    onUpdateImageSuggestion(sectionId, newSuggestion)
+  const handleEditImageSuggestion = (sectionId: string, index: number) => {
+    setEditingImageSuggestion({ sectionId, index })
+  }
+
+  const handleSaveImageSuggestion = (sectionId: string, newSuggestion: string, index: number) => {
+    onUpdateImageSuggestion(sectionId, newSuggestion, index)
     setEditingImageSuggestion(null)
   }
 
-  const handleDeleteImage = (sectionId: string) => {
-    onDeleteImage(sectionId)
+  const handleDeleteImage = (sectionId: string, imageIndex: number) => {
+    onDeleteImage(sectionId, imageIndex)
     toast({
       title: "Image Deleted",
       description: "The image has been successfully deleted.",
     })
   }
 
+  const handleDeleteAudio = (sectionId: string) => {
+    onDeleteAudio(sectionId)
+    toast({
+      title: "Audio Deleted",
+      description: "The audio has been successfully deleted.",
+    })
+  }
+
+  const onDragEnd = (result: DropResult) => {
+    if (!result.destination) {
+      return
+    }
+
+    const newSections = Array.from(sections)
+    const [reorderedSection] = newSections.splice(result.source.index, 1)
+    newSections.splice(result.destination.index, 0, reorderedSection)
+
+    onReorderSections(newSections)
+  }
+
   return (
     <div className="mt-8 space-y-6">
-      {sections.map((section) => (
-        <Card key={section.id} className="bg-secondary/50">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-lg">
-              <Input
-                value={section.title}
-                onChange={(e) => onUpdateSectionTitle(section.id, e.target.value)}
-                className="mt-2"
-              />
-            </CardTitle>
-            <div className="flex gap-2">
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={() => handlePlayAudio(section.id)}
-                className="text-accent hover:text-accent/90"
-              >
-                <Volume2 className="h-5 w-5" />
-              </Button>
-              <Button size="icon" variant="ghost" className="text-primary hover:text-primary/90">
-                <Play className="h-5 w-5" />
-              </Button>
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={() => onDeleteSection(section.id)}
-                className="text-destructive hover:text-destructive/90"
-              >
-                <Trash2 className="h-5 w-5" />
-              </Button>
+      <div className="flex items-center space-x-4 mb-4">
+        <Button
+          onClick={onGenerateAllImages}
+          disabled={sections.every(
+            (section) => (section.imageUrls || []).length === (section.imageSuggestions || []).length,
+          )}
+        >
+          Generate All Images
+        </Button>
+        <Button onClick={onGenerateAllAudios} disabled={sections.every((section) => section.audioUrl)}>
+          Generate All Audios
+        </Button>
+      </div>
+      <DragDropContext onDragEnd={onDragEnd}>
+        <Droppable droppableId="sections">
+          {(provided) => (
+            <div {...provided.droppableProps} ref={provided.innerRef}>
+              {sections.map((section, index) => (
+                <Draggable key={section.id} draggableId={section.id} index={index}>
+                  {(provided, snapshot) => (
+                    <div
+                      ref={provided.innerRef}
+                      {...provided.draggableProps}
+                      className={`mb-6 ${snapshot.isDragging ? "opacity-50" : ""}`}
+                    >
+                      <Card className="bg-secondary/50">
+                        <CardHeader className="flex flex-row items-center justify-between pb-2">
+                          <div className="flex items-center">
+                            <div {...provided.dragHandleProps} className="mr-2 cursor-move">
+                              <GripVertical className="h-5 w-5 text-gray-500" />
+                            </div>
+                            <CardTitle className="text-lg">
+                              <Input
+                                value={section.title}
+                                onChange={(e) => onUpdateSectionTitle(section.id, e.target.value)}
+                                className="mt-2"
+                              />
+                            </CardTitle>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => onDeleteSection(section.id)}
+                              className="text-destructive hover:text-destructive/90"
+                            >
+                              <Trash2 className="h-5 w-5" />
+                            </Button>
+                          </div>
+                        </CardHeader>
+                        <CardContent>
+                          <Textarea value={section.content} readOnly className="min-h-[100px] bg-secondary mb-4" />
+                          {section.imageSuggestion && (
+                            <div className="bg-primary/10 p-3 rounded-md flex items-start gap-2 mb-4">
+                              <ImageIcon className="h-5 w-5 mt-0.5 flex-shrink-0" />
+                              <div className="flex-grow flex justify-between items-start">
+                                <p className="text-sm flex-grow">{section.imageSuggestion}</p>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  onClick={() => handleEditImageSuggestion(section.id, 0)}
+                                  className="ml-2"
+                                >
+                                  <Edit2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                          {(section.imageSuggestions || []).map((suggestion, imgIndex) => (
+                            <div key={imgIndex} className="bg-primary/10 p-3 rounded-md flex items-start gap-2 mb-4">
+                              <ImageIcon className="h-5 w-5 mt-0.5 flex-shrink-0" />
+                              {editingImageSuggestion?.sectionId === section.id &&
+                              editingImageSuggestion.index === imgIndex ? (
+                                <div className="flex-grow">
+                                  <Textarea
+                                    value={suggestion}
+                                    onChange={(e) => onUpdateImageSuggestion(section.id, e.target.value, imgIndex)}
+                                    className="min-h-[60px] bg-secondary mb-2"
+                                  />
+                                  <Button onClick={() => handleSaveImageSuggestion(section.id, suggestion, imgIndex)}>
+                                    Save
+                                  </Button>
+                                </div>
+                              ) : (
+                                <div className="flex-grow flex justify-between items-start">
+                                  <p className="text-sm flex-grow">{suggestion}</p>
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    onClick={() => handleEditImageSuggestion(section.id, imgIndex)}
+                                    className="ml-2"
+                                  >
+                                    <Edit2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              onClick={() => handleGenerateImage(section.id, section.imageSuggestion, 0)}
+                              disabled={
+                                !section.imageSuggestion ||
+                                (generatingImage?.sectionId === section.id && generatingImage.index === 0)
+                              }
+                            >
+                              {generatingImage?.sectionId === section.id && generatingImage.index === 0 ? (
+                                <>
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  Generating...
+                                </>
+                              ) : (
+                                <>
+                                  <ImageIcon className="mr-2 h-4 w-4" />
+                                  Generate Image
+                                </>
+                              )}
+                            </Button>
+                            <Button
+                              onClick={() => fileInputRef.current[section.id]?.click()}
+                              disabled={uploadingImage?.sectionId === section.id}
+                            >
+                              {uploadingImage?.sectionId === section.id ? (
+                                <>
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  Uploading...
+                                </>
+                              ) : (
+                                <>
+                                  <Upload className="mr-2 h-4 w-4" />
+                                  Upload Image
+                                </>
+                              )}
+                            </Button>
+                            <Button
+                              onClick={() => handleGenerateAudio(section.id, section.content)}
+                              disabled={generatingAudio === section.id}
+                            >
+                              {generatingAudio === section.id ? (
+                                <>
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  Generating Audio...
+                                </>
+                              ) : (
+                                <>
+                                  <Headphones className="mr-2 h-4 w-4" />
+                                  Generate Audio
+                                </>
+                              )}
+                            </Button>
+                            <Button
+                              onClick={() => audioInputRef.current[section.id]?.click()}
+                              disabled={uploadingAudio === section.id}
+                            >
+                              {uploadingAudio === section.id ? (
+                                <>
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  Uploading...
+                                </>
+                              ) : (
+                                <>
+                                  <Music className="mr-2 h-4 w-4" />
+                                  Upload Audio
+                                </>
+                              )}
+                            </Button>
+                            <input
+                              type="file"
+                              ref={(el) => (fileInputRef.current[section.id] = el)}
+                              style={{ display: "none" }}
+                              accept="image/*"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0]
+                                if (file) {
+                                  handleUploadImage(section.id, file, section.imageUrls.length)
+                                }
+                              }}
+                            />
+                            <input
+                              type="file"
+                              ref={(el) => (audioInputRef.current[section.id] = el)}
+                              style={{ display: "none" }}
+                              accept="audio/*"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0]
+                                if (file) {
+                                  handleUploadAudio(section.id, file)
+                                }
+                              }}
+                            />
+                          </div>
+                          {(section.imageUrls || []).map((imageUrl, imgIndex) => (
+                            <div key={imgIndex} className="mt-4 relative">
+                              <img
+                                src={imageUrl || "/placeholder.svg"}
+                                alt={`Generated or uploaded image ${imgIndex + 1}`}
+                                className="rounded-md w-full"
+                              />
+                              <Button
+                                size="icon"
+                                variant="destructive"
+                                className="absolute top-2 right-2"
+                                onClick={() => handleDeleteImage(section.id, imgIndex)}
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ))}
+                          {section.audioUrl && (
+                            <div className="mt-4 relative">
+                              <audio controls src={section.audioUrl} className="w-full" />
+                              <Button
+                                size="icon"
+                                variant="destructive"
+                                className="absolute top-2 right-2"
+                                onClick={() => handleDeleteAudio(section.id)}
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </div>
+                  )}
+                </Draggable>
+              ))}
+              {provided.placeholder}
             </div>
-          </CardHeader>
-          <CardContent>
-            <Textarea value={section.content} readOnly className="min-h-[100px] bg-secondary mb-4" />
-            <div className="bg-primary/10 p-3 rounded-md flex items-start gap-2 mb-4">
-              <ImageIcon className="h-5 w-5 mt-0.5 flex-shrink-0" />
-              {editingImageSuggestion === section.id ? (
-                <div className="flex-grow">
-                  <Textarea
-                    value={section.imageSuggestion}
-                    onChange={(e) => onUpdateImageSuggestion(section.id, e.target.value)}
-                    className="min-h-[60px] bg-secondary mb-2"
-                  />
-                  <Button onClick={() => handleSaveImageSuggestion(section.id, section.imageSuggestion)}>Save</Button>
-                </div>
-              ) : (
-                <div className="flex-grow flex justify-between items-start">
-                  <p className="text-sm flex-grow">{section.imageSuggestion}</p>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    onClick={() => handleEditImageSuggestion(section.id, section.imageSuggestion)}
-                    className="ml-2"
-                  >
-                    <Edit2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                onClick={() => handleGenerateImage(section.id, section.imageSuggestion)}
-                disabled={!section.imageSuggestion || generatingImage === section.id}
-              >
-                {generatingImage === section.id ? "Generating..." : "Generate Image"}
-              </Button>
-              <Button
-                onClick={() => fileInputRefs.current[section.id]?.click()}
-                disabled={uploadingImage === section.id}
-              >
-                {uploadingImage === section.id ? "Uploading..." : "Upload Image"}
-              </Button>
-              <Button
-                onClick={() => handleGenerateAudio(section.id, section.content)}
-                disabled={generatingAudio === section.id}
-              >
-                {generatingAudio === section.id ? "Generating..." : "Generate Audio"}
-              </Button>
-              <input
-                type="file"
-                ref={(el) => (fileInputRefs.current[section.id] = el)}
-                style={{ display: "none" }}
-                accept="image/*"
-                onChange={(e) => {
-                  const file = e.target.files?.[0]
-                  if (file) {
-                    handleUploadImage(section.id, file)
-                  }
-                }}
-              />
-            </div>
-            {section.imageData && (
-              <div className="mt-4 relative">
-                <img
-                  src={section.imageData || "/placeholder.svg"}
-                  alt="Generated or uploaded image"
-                  className="rounded-md w-full"
-                />
-                <Button
-                  size="icon"
-                  variant="destructive"
-                  className="absolute top-2 right-2"
-                  onClick={() => handleDeleteImage(section.id)}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            )}
-            {section.audioUrl && (
-              <div className="mt-4">
-                <audio controls src={section.audioUrl} className="w-full" />
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      ))}
+          )}
+        </Droppable>
+      </DragDropContext>
     </div>
   )
 }

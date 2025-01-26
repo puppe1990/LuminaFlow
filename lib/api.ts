@@ -1,13 +1,8 @@
 import type { AIConfig, Section } from "@/types"
 
-export async function generateContent(
-  concept: string,
-  numParts: number,
-  scriptConfig: AIConfig,
-  imageConfig: AIConfig,
-) {
+export async function generateContent(concept: string, numParts: number, scriptConfig: AIConfig) {
   try {
-    console.log("Sending request to /api/generate with:", { concept, numParts, scriptConfig, imageConfig })
+    console.log("Sending request to /api/generate with:", { concept, numParts, scriptConfig })
     const response = await fetch("/api/generate", {
       method: "POST",
       headers: {
@@ -17,7 +12,6 @@ export async function generateContent(
         concept,
         numParts,
         scriptConfig,
-        imageConfig,
       }),
     })
 
@@ -45,8 +39,6 @@ export async function generateContent(
 
     return {
       script: data.script as Section[],
-      imagePrompt: data.imagePrompt as string,
-      imageUrl: data.imageUrl as string | null,
     }
   } catch (error) {
     console.error("Error in generateContent:", error)

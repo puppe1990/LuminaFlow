@@ -27,6 +27,7 @@ import { saveApiKey, getApiKey, saveConfig } from "@/lib/db"
 const SCRIPT_PROVIDERS = [
   { id: "openai", name: "OpenAI", description: "GPT models" },
   { id: "anthropic", name: "Anthropic", description: "Claude models" },
+  { id: "deepseek", name: "DeepSeek", description: "DeepSeek Chat model" },
 ]
 
 const IMAGE_PROVIDERS = [
@@ -85,6 +86,13 @@ const TTS_MODELS = [
   { id: "tts-1-hd", name: "TTS-1-HD" },
 ]
 
+const TTS_VOICES = ["alloy", "ash", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer"]
+
+const DEEPSEEK_MODELS = [
+  { id: "deepseek-chat", name: "DeepSeek Chat", description: "DeepSeek's chat model" },
+  { id: "deepseek-reasoner", name: "DeepSeek Reasoner", description: "DeepSeek's reasoning model" },
+]
+
 interface AIProviderConfigProps {
   config: VideoGenerationConfig
   onConfigChange: (newConfig: VideoGenerationConfig) => void
@@ -100,6 +108,7 @@ export function AIProviderConfig({ config, onConfigChange }: AIProviderConfigPro
   const [audioProvider, setAudioProvider] = useState(config.audioConfig?.provider || "")
   const [audioApiKey, setAudioApiKey] = useState(config.audioConfig?.apiKey || "")
   const [audioModel, setAudioModel] = useState(config.audioConfig?.model || "")
+  const [audioVoice, setAudioVoice] = useState(config.audioConfig?.voice || "alloy")
   const [isScriptDialogOpen, setIsScriptDialogOpen] = useState(false)
   const [isImageDialogOpen, setIsImageDialogOpen] = useState(false)
   const [isAudioDialogOpen, setIsAudioDialogOpen] = useState(false)
@@ -145,7 +154,7 @@ export function AIProviderConfig({ config, onConfigChange }: AIProviderConfigPro
       apiKey = audioApiKey
       provider = audioProvider
       model = audioModel
-      newConfig.audioConfig = { provider, apiKey, model }
+      newConfig.audioConfig = { provider, apiKey, model, voice: audioVoice }
       setIsAudioDialogOpen(false)
     }
 
@@ -200,23 +209,43 @@ export function AIProviderConfig({ config, onConfigChange }: AIProviderConfigPro
     </Select>
   )
 
-  const renderModelSelect = (type: "script" | "image" | "audio", value: string, onChange: (value: string) => void) => (
-    <Select value={value} onValueChange={onChange}>
-      <SelectTrigger className="w-[200px]">
-        <SelectValue placeholder={`Select ${type} AI Model`} />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectGroup>
-          <SelectLabel>{type.charAt(0).toUpperCase() + type.slice(1)} AI Models</SelectLabel>
-          {(type === "script" ? OPENAI_MODELS : type === "image" ? DALLE_MODELS : TTS_MODELS).map((model) => (
-            <SelectItem key={model.id} value={model.id}>
-              {model.name}
-            </SelectItem>
-          ))}
-        </SelectGroup>
-      </SelectContent>
-    </Select>
-  )
+  const renderModelSelect = (type: "script" | "image" | "audio", value: string, onChange: (value: string) => void) => {
+    let models
+    if (type === "script") {
+      switch (scriptProvider) {
+        case "openai":
+          models = OPENAI_MODELS
+          break
+        case "deepseek":
+          models = DEEPSEEK_MODELS
+          break
+        default:
+          models = []
+      }
+    } else if (type === "image") {
+      models = DALLE_MODELS
+    } else {
+      models = TTS_MODELS
+    }
+
+    return (
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger className="w-[200px]">
+          <SelectValue placeholder={`Select ${type} AI Model`} />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            <SelectLabel>{type.charAt(0).toUpperCase() + type.slice(1)} AI Models</SelectLabel>
+            {models.map((model) => (
+              <SelectItem key={model.id} value={model.id}>
+                {model.name}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+    )
+  }
 
   const renderApiKeyDialog = (
     type: "script" | "image" | "audio",
@@ -252,10 +281,27 @@ export function AIProviderConfig({ config, onConfigChange }: AIProviderConfigPro
               onChange={(e) => setApiKey(e.target.value)}
             />
           </div>
-          {provider === "openai" && (
+          {(provider === "openai" || provider === "deepseek") && (
             <div className="grid gap-2">
               <label htmlFor={`${type}-model`}>Model</label>
               {renderModelSelect(type, model, setModel)}
+            </div>
+          )}
+          {provider === "openai" && type === "audio" && (
+            <div className="grid gap-2">
+              <label htmlFor="audio-voice">Voice</label>
+              <Select value={audioVoice} onValueChange={setAudioVoice}>
+                <SelectTrigger id="audio-voice">
+                  <SelectValue placeholder="Select voice" />
+                </SelectTrigger>
+                <SelectContent>
+                  {TTS_VOICES.map((voice) => (
+                    <SelectItem key={voice} value={voice}>
+                      {voice}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           )}
         </div>
@@ -316,7 +362,8 @@ export function AIProviderConfig({ config, onConfigChange }: AIProviderConfigPro
         </div>
         <div>
           <p className="mb-2">
-            Audio Generation: {config.audioConfig?.provider || "Not set"} - {config.audioConfig?.model || "Not set"}
+            Audio Generation: {config.audioConfig?.provider || "Not set"} - {config.audioConfig?.model || "Not set"} -{" "}
+            {config.audioConfig?.voice || "Not set"}
           </p>
           {renderProviderSelect("audio", audioProvider, setAudioProvider)}
           {audioProvider && (

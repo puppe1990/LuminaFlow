@@ -115,7 +115,31 @@ export function importHistory(historyExport: HistoryExport): void {
   }
 
   const existingHistory = JSON.parse(localStorage.getItem("generationHistory") || "[]")
-  const mergedHistory = [...historyExport.history, ...existingHistory]
+  const mergedHistory = historyExport.history
+    .map((importedItem) => {
+      const existingItem = existingHistory.find((item) => item.id === importedItem.id)
+      if (existingItem) {
+        return {
+          ...existingItem,
+          ...importedItem,
+          sections: importedItem.sections.map((importedSection) => {
+            const existingSection = existingItem.sections.find((s) => s.id === importedSection.id)
+            if (existingSection) {
+              return {
+                ...existingSection,
+                ...importedSection,
+                imageSuggestion: importedSection.imageSuggestion || existingSection.imageSuggestion,
+              }
+            }
+            return importedSection
+          }),
+        }
+      }
+      return importedItem
+    })
+    .concat(
+      existingHistory.filter((item) => !historyExport.history.some((importedItem) => importedItem.id === item.id)),
+    )
 
   // Remove duplicates based on id
   const uniqueHistory = mergedHistory.filter((item, index, self) => index === self.findIndex((t) => t.id === item.id))

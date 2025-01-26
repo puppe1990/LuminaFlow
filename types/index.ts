@@ -2,8 +2,9 @@ export interface Section {
   id: string
   title: string
   content: string
+  imageUrls?: string[]
+  imageSuggestions?: string[]
   audioUrl?: string
-  imageSuggestion?: string
 }
 
 export interface AIConfig {

@@ -19,7 +19,7 @@ import {
 import type { Section, VideoGenerationConfig, GenerationHistoryItem, HistoryExport, AIConfig } from "@/types"
 import { useToast } from "@/components/ui/use-toast"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { AlertCircle, Download, Upload, Trash2, Key } from "lucide-react"
+import { AlertCircle, Download, Upload, Trash2, Key, Pencil } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -34,6 +34,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import CryptoJS from "crypto-js"
+import VideoEditor from "@/components/video-editor"
+import { EditorToggle } from "@/components/editor-toggle"
 
 const ENCRYPTION_KEY = "your-secret-key" // Replace with a secure key in production
 
@@ -63,6 +65,7 @@ export default function HomePage() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [itemToDelete, setItemToDelete] = useState<string | null>(null)
   const [isImportingConfig, setIsImportingConfig] = useState(false)
+  const [editorMode, setEditorMode] = useState<"script" | "video">("script")
 
   useEffect(() => {
     const loadHistory = async () => {
@@ -108,7 +111,7 @@ export default function HomePage() {
   }
 
   const handleGenerate = async (concept: string, numParts: number) => {
-    const { scriptConfig, imageConfig } = config
+    const { scriptConfig } = config
 
     if (!scriptConfig.provider || !scriptConfig.apiKey || (scriptConfig.provider === "openai" && !scriptConfig.model)) {
       setApiError(
@@ -117,57 +120,42 @@ export default function HomePage() {
       return
     }
 
-    if (!imageConfig.provider || !imageConfig.apiKey || (imageConfig.provider === "openai" && !imageConfig.model)) {
-      setApiError(
-        "Please set the image generation configuration, including provider, API key, and model (if applicable)",
-      )
-      return
-    }
-
     setIsGenerating(true)
     setApiError(null)
-    setImageError(null)
     setSections([])
     setImagePrompt(null)
     setImageUrl(null)
 
     try {
-      console.log("Generating content with:", { concept, numParts, scriptConfig, imageConfig })
-      const result = await generateContent(concept, numParts, scriptConfig, imageConfig)
+      console.log("Generating content with:", { concept, numParts, scriptConfig })
+      const result = await generateContent(concept, numParts, scriptConfig)
       console.log("Generated content result:", result)
 
       if (!result.script || !Array.isArray(result.script) || result.script.length === 0) {
         throw new Error("Invalid or empty script received from the server")
       }
 
-      setSections(result.script)
-      setImagePrompt(result.imagePrompt)
-      setImageUrl(result.imageUrl)
-      setImageError(result.imageError)
+      setSections(
+        result.script.map((section) => ({
+          ...section,
+          imageUrls: section.imageUrls || [],
+          imageSuggestions: section.imageSuggestions || [],
+        })),
+      )
 
       const historyItem = await saveGenerationHistory(
         concept,
         numParts,
         scriptConfig.provider,
-        imageConfig.provider,
+        "Not set",
         result.script,
-        result.imageUrl,
       )
       setHistory((prevHistory) => [historyItem, ...prevHistory])
 
       toast({
         title: "Success",
-        description: "Video script generated successfully" + (result.imageError ? ", but image generation failed" : ""),
+        description: "Video script generated successfully",
       })
-
-      if (result.imageError) {
-        setImageError(result.imageError)
-        toast({
-          title: "Image Generation Failed",
-          description: result.imageError,
-          variant: "destructive",
-        })
-      }
     } catch (error) {
       console.error("Failed to generate content:", error)
       if (error instanceof Error) {
@@ -217,18 +205,9 @@ export default function HomePage() {
 
       const data = await response.json()
 
-      // Fetch the image data
-      const imageResponse = await fetch(data.imageUrl)
-      const imageBlob = await imageResponse.blob()
-      const imageData = await new Promise<string>((resolve) => {
-        const reader = new FileReader()
-        reader.onloadend = () => resolve(reader.result as string)
-        reader.readAsDataURL(imageBlob)
-      })
-
       setSections((prevSections) =>
         prevSections.map((section) =>
-          section.id === sectionId ? { ...section, imageUrl: data.imageUrl, imageData } : section,
+          section.id === sectionId ? { ...section, imageUrls: [...(section.imageUrls || []), data.imageUrl] } : section,
         ),
       )
 
@@ -237,7 +216,9 @@ export default function HomePage() {
         prevHistory.map((item) => ({
           ...item,
           sections: item.sections.map((section) =>
-            section.id === sectionId ? { ...section, imageUrl: data.imageUrl, imageData } : section,
+            section.id === sectionId
+              ? { ...section, imageUrls: [...(section.imageUrls || []), data.imageUrl] }
+              : section,
           ),
         })),
       )
@@ -264,7 +245,15 @@ export default function HomePage() {
       })
 
       setSections((prevSections) =>
-        prevSections.map((section) => (section.id === sectionId ? { ...section, imageUrl, imageData } : section)),
+        prevSections.map((section) =>
+          section.id === sectionId
+            ? {
+                ...section,
+                imageUrls: [...(section.imageUrls || []), imageUrl],
+                imageData: [...(section.imageData || []), imageData],
+              }
+            : section,
+        ),
       )
 
       // Update the history with the new image data
@@ -272,7 +261,13 @@ export default function HomePage() {
         prevHistory.map((item) => ({
           ...item,
           sections: item.sections.map((section) =>
-            section.id === sectionId ? { ...section, imageUrl, imageData } : section,
+            section.id === sectionId
+              ? {
+                  ...section,
+                  imageUrls: [...(section.imageUrls || []), imageUrl],
+                  imageData: [...(section.imageData || []), imageData],
+                }
+              : section,
           ),
         })),
       )
@@ -287,10 +282,51 @@ export default function HomePage() {
     }
   }
 
-  const handleDeleteImage = (sectionId: string) => {
+  const handleUploadAudio = async (sectionId: string, file: File) => {
+    try {
+      const audioUrl = URL.createObjectURL(file)
+
+      // Convert the file to base64
+      const audioData = await new Promise<string>((resolve) => {
+        const reader = new FileReader()
+        reader.onloadend = () => resolve(reader.result as string)
+        reader.readAsDataURL(file)
+      })
+
+      setSections((prevSections) =>
+        prevSections.map((section) => (section.id === sectionId ? { ...section, audioUrl, audioData } : section)),
+      )
+
+      // Update the history with the new audio data
+      setHistory((prevHistory) =>
+        prevHistory.map((item) => ({
+          ...item,
+          sections: item.sections.map((section) =>
+            section.id === sectionId ? { ...section, audioUrl, audioData } : section,
+          ),
+        })),
+      )
+
+      // Save the updated history to localStorage
+      localStorage.setItem("generationHistory", JSON.stringify(history))
+
+      return audioUrl
+    } catch (error) {
+      console.error("Failed to upload audio:", error)
+      throw error
+    }
+  }
+
+  const handleDeleteImage = (sectionId: string, imageIndex: number) => {
     setSections((prevSections) =>
       prevSections.map((section) =>
-        section.id === sectionId ? { ...section, imageUrl: undefined, imageData: undefined } : section,
+        section.id === sectionId
+          ? {
+              ...section,
+              imageUrls: (section.imageUrls || []).filter((_, index) => index !== imageIndex),
+              imageData: (section.imageData || []).filter((_, index) => index !== imageIndex),
+            }
+          : section,
       ),
     )
 
@@ -299,7 +335,40 @@ export default function HomePage() {
       prevHistory.map((item) => ({
         ...item,
         sections: item.sections.map((section) =>
-          section.id === sectionId ? { ...section, imageUrl: undefined, imageData: undefined } : section,
+          section.id === sectionId
+            ? {
+                ...section,
+                imageUrls: (section.imageUrls || []).filter((_, index) => index !== imageIndex),
+                imageData: (section.imageData || []).filter((_, index) => index !== imageIndex),
+              }
+            : section,
+        ),
+      })),
+    )
+
+    // Save the updated history to localStorage
+    localStorage.setItem("generationHistory", JSON.stringify(history))
+  }
+
+  const handleDeleteAudio = (sectionId: string) => {
+    setSections((prevSections) =>
+      prevSections.map((section) =>
+        section.id === sectionId ? { ...section, audioUrl: undefined, audioData: undefined } : section,
+      ),
+    )
+
+    // Update the history by removing the audio data
+    setHistory((prevHistory) =>
+      prevHistory.map((item) => ({
+        ...item,
+        sections: item.sections.map((section) =>
+          section.id === sectionId
+            ? {
+                ...section,
+                audioUrl: undefined,
+                audioData: undefined,
+              }
+            : section,
         ),
       })),
     )
@@ -311,7 +380,13 @@ export default function HomePage() {
   const handleHistorySelect = (id: string) => {
     const selectedItem = history.find((item) => item.id === id)
     if (selectedItem) {
-      setSections(selectedItem.sections)
+      setSections(
+        selectedItem.sections.map((section) => ({
+          ...section,
+          imageSuggestions: section.imageSuggestions || [],
+          imageUrls: section.imageUrls || [],
+        })),
+      )
       setImagePrompt(null)
       setImageUrl(null)
       setImageError(null)
@@ -546,10 +621,17 @@ export default function HomePage() {
     )
   }
 
-  const handleUpdateImageSuggestion = (sectionId: string, newSuggestion: string) => {
+  const handleUpdateImageSuggestion = (sectionId: string, newSuggestion: string, index: number) => {
     setSections((prevSections) =>
       prevSections.map((section) =>
-        section.id === sectionId ? { ...section, imageSuggestion: newSuggestion } : section,
+        section.id === sectionId
+          ? {
+              ...section,
+              imageSuggestions: section.imageSuggestions.map((suggestion, i) =>
+                i === index ? newSuggestion : suggestion,
+              ),
+            }
+          : section,
       ),
     )
   }
@@ -564,14 +646,20 @@ export default function HomePage() {
         body: JSON.stringify({
           text,
           config: audioConfig,
+          voice: audioConfig.voice || "alloy",
         }),
       })
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+        const errorData = await response.json()
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`)
       }
 
       const data = await response.json()
+
+      if (!data.audioUrl) {
+        throw new Error("No audio URL returned from the server")
+      }
 
       setSections((prevSections) =>
         prevSections.map((section) => (section.id === sectionId ? { ...section, audioUrl: data.audioUrl } : section)),
@@ -590,155 +678,254 @@ export default function HomePage() {
       // Save the updated history to localStorage
       localStorage.setItem("generationHistory", JSON.stringify(history))
 
+      toast({
+        title: "Audio Generated",
+        description: `The audio has been successfully generated using the ${audioConfig.voice || "alloy"} voice.`,
+      })
+
       return data.audioUrl
     } catch (error) {
       console.error("Failed to generate audio:", error)
+      toast({
+        title: "Audio Generation Failed",
+        description: error instanceof Error ? error.message : "An unknown error occurred",
+        variant: "destructive",
+      })
       throw error
     }
   }
 
+  const handleGenerateAllImages = async () => {
+    for (const section of sections) {
+      for (let i = section.imageUrls.length; i < section.imageSuggestions.length; i++) {
+        try {
+          await handleGenerateImage(section.id, section.imageSuggestions[i], config.imageConfig)
+        } catch (error) {
+          console.error(`Failed to generate image for section ${section.id}, suggestion ${i}:`, error)
+          toast({
+            title: "Image Generation Failed",
+            description: `Failed to generate image for section ${section.title}, suggestion ${i + 1}. Please try again.`,
+            variant: "destructive",
+          })
+        }
+      }
+    }
+    toast({
+      title: "Image Generation Complete",
+      description: "All images have been generated successfully.",
+    })
+  }
+
+  const handleGenerateAllAudios = async () => {
+    for (const section of sections) {
+      if (!section.audioUrl) {
+        try {
+          await handleGenerateAudio(section.id, section.content, config.audioConfig)
+        } catch (error) {
+          console.error(`Failed to generate audio for section ${section.id}:`, error)
+          toast({
+            title: "Audio Generation Failed",
+            description: `Failed to generate audio for section "${section.title}": ${error instanceof Error ? error.message : "Unknown error"}`,
+            variant: "destructive",
+          })
+        }
+      }
+    }
+    toast({
+      title: "Audio Generation Complete",
+      description: "All audios have been generated successfully.",
+    })
+  }
+
+  const handleReorderSections = (newSections: Section[]) => {
+    setSections(newSections)
+
+    // Update the history with the new section order
+    setHistory((prevHistory) =>
+      prevHistory.map((item) => ({
+        ...item,
+        sections: item.id === config.projectTitle ? newSections : item.sections,
+      })),
+    )
+
+    // Save the updated history to localStorage
+    localStorage.setItem("generationHistory", JSON.stringify(history))
+  }
+
   return (
     <main className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold mb-6">Create Your Video</h1>
-      <div className="mb-4">
-        <label htmlFor="projectTitle" className="block text-sm font-medium text-gray-700 mb-1">
-          Project Title
-        </label>
-        <Input
-          id="projectTitle"
-          value={config.projectTitle}
-          onChange={handleProjectTitleChange}
-          placeholder="Enter project title"
-          className="max-w-md"
-        />
-      </div>
-      <AIProviderConfig config={config} onConfigChange={handleConfigChange} />
-      <div className="mt-4 flex gap-4">
-        <Button onClick={handleExportConfig} variant="outline">
-          <Key className="mr-2 h-4 w-4" />
-          Export Config
-        </Button>
-        <Button onClick={() => configFileInputRef.current?.click()} variant="outline" disabled={isImportingConfig}>
-          <Upload className="mr-2 h-4 w-4" />
-          {isImportingConfig ? "Importing..." : "Import Config"}
-        </Button>
-        <input
-          type="file"
-          ref={configFileInputRef}
-          onChange={handleImportConfig}
-          accept=".json"
-          style={{ display: "none" }}
-        />
-      </div>
-      {apiError && (
-        <Alert variant="destructive" className="mt-4">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Error</AlertTitle>
-          <AlertDescription>{apiError}</AlertDescription>
-        </Alert>
-      )}
-      <div className="mt-8">
-        <VideoForm onGenerate={handleGenerate} isGenerating={isGenerating} />
-      </div>
-      <div className="mt-8">
-        <h2 className="text-xl font-semibold mb-2">History</h2>
-        <div className="flex items-center gap-4 mb-4">
-          <Select onValueChange={handleHistorySelect}>
-            <SelectTrigger className="w-[300px]">
-              <SelectValue placeholder="Select a previous generation" />
-            </SelectTrigger>
-            <SelectContent>
-              {history.map((item) => (
-                <SelectItem key={item.id} value={item.id}>
-                  <div className="flex items-center justify-between w-full">
-                    <span>
-                      {item.concept} ({new Date(item.createdAt).toLocaleString()})
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleDeleteHistoryItem(item.id)
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+      {editorMode === "script" ? (
+        <>
+          <h1 className="text-3xl font-bold mb-6">Create Your Video</h1>
+          <div className="mb-4 flex items-center">
+            <label htmlFor="projectTitle" className="block text-sm font-medium text-gray-700 mr-2">
+              Project Title
+            </label>
+            <div className="relative flex-grow max-w-md">
+              <Input
+                id="projectTitle"
+                value={config.projectTitle}
+                onChange={handleProjectTitleChange}
+                placeholder="Enter project title"
+                className="pr-10"
+              />
+              <Pencil className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+            </div>
+          </div>
+          <AIProviderConfig config={config} onConfigChange={handleConfigChange} />
+          <div className="mt-4 flex gap-4">
+            <Button onClick={handleExportConfig} variant="outline">
+              <Key className="mr-2 h-4 w-4" />
+              Export Config
+            </Button>
+            <Button onClick={() => configFileInputRef.current?.click()} variant="outline" disabled={isImportingConfig}>
+              <Upload className="mr-2 h-4 w-4" />
+              {isImportingConfig ? "Importing..." : "Import Config"}
+            </Button>
+            <input
+              type="file"
+              ref={configFileInputRef}
+              onChange={handleImportConfig}
+              accept=".json"
+              style={{ display: "none" }}
+            />
+          </div>
+          {apiError && (
+            <Alert variant="destructive" className="mt-4">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Error</AlertTitle>
+              <AlertDescription>{apiError}</AlertDescription>
+            </Alert>
+          )}
+          <div className="mt-8">
+            <VideoForm onGenerate={handleGenerate} isGenerating={isGenerating} />
+          </div>
+          <div className="mt-8">
+            <h2 className="text-xl font-semibold mb-2">History</h2>
+            <div className="flex items-center gap-4 mb-4">
+              <Select onValueChange={handleHistorySelect}>
+                <SelectTrigger className="w-[300px]">
+                  <SelectValue placeholder="Select a previous generation" />
+                </SelectTrigger>
+                <SelectContent>
+                  {history.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      <div className="flex items-center justify-between w-full">
+                        <span>
+                          {item.concept} ({new Date(item.createdAt).toLocaleString()})
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleDeleteHistoryItem(item.id)
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline">
-                <Download className="mr-2 h-4 w-4" />
-                Export History
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline">
+                    <Download className="mr-2 h-4 w-4" />
+                    Export History
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  <DropdownMenuItem onSelect={() => handleExportHistory("json")}>Export as JSON</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => handleExportHistory("zip")}>
+                    Export as ZIP (with images)
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Button onClick={() => fileInputRef.current?.click()} variant="outline">
+                <Upload className="mr-2 h-4 w-4" />
+                Import History
               </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              <DropdownMenuItem onSelect={() => handleExportHistory("json")}>Export as JSON</DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => handleExportHistory("zip")}>
-                Export as ZIP (with images)
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <Button onClick={() => fileInputRef.current?.click()} variant="outline">
-            <Upload className="mr-2 h-4 w-4" />
-            Import History
-          </Button>
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleImportHistory}
-            accept=".json,.zip"
-            style={{ display: "none" }}
-          />
-        </div>
-      </div>
-      {sections.length > 0 && (
-        <div className="mt-8">
-          <h2 className="text-2xl font-bold mb-4">Generated Script with Image and Audio</h2>
-          <ScriptSections
-            sections={sections}
-            onGenerateImage={handleGenerateImage}
-            onGenerateAudio={handleGenerateAudio}
-            onDeleteSection={handleDeleteSection}
-            onUploadImage={handleUploadImage}
-            onDeleteImage={handleDeleteImage}
-            imageConfig={config.imageConfig}
-            audioConfig={config.audioConfig}
-            onUpdateSectionTitle={handleUpdateSectionTitle}
-            onUpdateImageSuggestion={handleUpdateImageSuggestion}
-          />
-        </div>
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleImportHistory}
+                accept=".json,.zip"
+                style={{ display: "none" }}
+              />
+            </div>
+          </div>
+          {sections.length > 0 && (
+            <div className="mt-8">
+              <h2 className="text-2xl font-bold mb-4">Generated Script with Image and Audio</h2>
+              <div className="flex items-center mb-4">
+                <h3 className="text-xl font-semibold mr-2">{config.projectTitle}</h3>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="p-0"
+                  onClick={() => {
+                    // You can add logic here to handle the edit action
+                    // For example, open a modal or switch to an editable input
+                  }}
+                >
+                  <Pencil className="h-4 w-4 text-gray-500" />
+                </Button>
+              </div>
+              <ScriptSections
+                sections={sections}
+                onGenerateImage={handleGenerateImage}
+                onGenerateAudio={handleGenerateAudio}
+                onDeleteSection={handleDeleteSection}
+                onUploadImage={handleUploadImage}
+                onUploadAudio={handleUploadAudio}
+                onDeleteImage={handleDeleteImage}
+                onDeleteAudio={handleDeleteAudio}
+                imageConfig={config.imageConfig}
+                audioConfig={config.audioConfig}
+                onUpdateSectionTitle={handleUpdateSectionTitle}
+                onUpdateImageSuggestion={handleUpdateImageSuggestion}
+                onGenerateAllImages={handleGenerateAllImages}
+                onGenerateAllAudios={handleGenerateAllAudios}
+                onReorderSections={handleReorderSections}
+              />
+            </div>
+          )}
+          {imagePrompt && (
+            <div className="mt-8 p-4 bg-secondary rounded-lg">
+              <h2 className="text-xl font-semibold mb-2">Main Image Prompt</h2>
+              <p>{imagePrompt}</p>
+            </div>
+          )}
+          {imageUrl && (
+            <div className="mt-8">
+              <h2 className="text-xl font-semibold mb-2">Generated Image</h2>
+              <Image
+                src={imageUrl || "/placeholder.svg"}
+                alt="Generated image"
+                width={500}
+                height={500}
+                className="rounded-lg"
+              />
+            </div>
+          )}
+          {imageError && (
+            <Alert variant="destructive" className="mt-4">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Image Generation Error</AlertTitle>
+              <AlertDescription>{imageError}</AlertDescription>
+            </Alert>
+          )}
+        </>
+      ) : (
+        <>
+          <h1 className="text-3xl font-bold mb-6">Video Editor</h1>
+          {editorMode === "video" && <VideoEditor sections={sections} />}
+        </>
       )}
-      {imagePrompt && (
-        <div className="mt-8 p-4 bg-secondary rounded-lg">
-          <h2 className="text-xl font-semibold mb-2">Main Image Prompt</h2>
-          <p>{imagePrompt}</p>
-        </div>
-      )}
-      {imageUrl && (
-        <div className="mt-8">
-          <h2 className="text-xl font-semibold mb-2">Generated Image</h2>
-          <Image
-            src={imageUrl || "/placeholder.svg"}
-            alt="Generated image"
-            width={500}
-            height={500}
-            className="rounded-lg"
-          />
-        </div>
-      )}
-      {imageError && (
-        <Alert variant="destructive" className="mt-4">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Image Generation Error</AlertTitle>
-          <AlertDescription>{imageError}</AlertDescription>
-        </Alert>
-      )}
+      <EditorToggle mode={editorMode} onToggle={setEditorMode} />
       <Dialog open={isImportDialogOpen} onOpenChange={setIsImportDialogOpen}>
         <DialogContent>
           <DialogHeader>

@@ -1,28 +1,40 @@
 import { type NextRequest, NextResponse } from "next/server"
-import OpenAI from "openai"
 import type { AIConfig } from "@/types"
 
 export async function POST(req: NextRequest) {
   try {
-    const { text, config } = await req.json()
+    const { text, config, voice } = await req.json()
 
     if (!text || !config) {
       return NextResponse.json({ error: "Missing text or config" }, { status: 400 })
     }
 
-    const openai = new OpenAI({ apiKey: config.apiKey })
+    if (!config.apiKey) {
+      return NextResponse.json({ error: "Missing API key" }, { status: 400 })
+    }
 
-    const mp3 = await openai.audio.speech.create({
-      model: config.model,
-      voice: "alloy", // You can make this configurable if needed
-      input: text,
+    const response = await fetch("https://api.openai.com/v1/audio/speech", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: config.model || "tts-1",
+        input: text,
+        voice: voice || "alloy",
+        response_format: "mp3",
+      }),
     })
 
-    const buffer = Buffer.from(await mp3.arrayBuffer())
-    const base64Audio = buffer.toString("base64")
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(`OpenAI API error: ${response.status} ${response.statusText} - ${JSON.stringify(errorData)}`)
+    }
 
-    // In a real-world scenario, you might want to save this file to a storage service
-    // and return a URL. For this example, we'll return the base64 encoded audio.
+    const audioBuffer = await response.arrayBuffer()
+    const base64Audio = Buffer.from(audioBuffer).toString("base64")
+
     return NextResponse.json({ audioUrl: `data:audio/mp3;base64,${base64Audio}` })
   } catch (error) {
     console.error("Error in generate-audio API route:", error)

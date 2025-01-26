@@ -51,12 +51,14 @@ function parseScriptData(content: string): Section[] {
 export async function generateVideoScript(concept: string, numParts: number, config: AIConfig): Promise<Section[]> {
   const { provider, apiKey, model } = config
 
-  if (provider !== "openai") {
+  if (provider !== "openai" && provider !== "deepseek") {
     throw new Error(`Unsupported provider: ${provider}`)
   }
 
+  const baseUrl = provider === "deepseek" ? "https://api.deepseek.com/v1" : "https://api.openai.com/v1"
+
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -86,17 +88,17 @@ Ensure that each section has a unique and descriptive image suggestion. Do not i
     })
 
     if (!response.ok) {
-      throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`)
+      throw new Error(`API error: ${response.status} ${response.statusText}`)
     }
 
     const data = await response.json()
 
     if (!data.choices || data.choices.length === 0) {
-      throw new Error("No completion choices returned from OpenAI")
+      throw new Error("No completion choices returned from API")
     }
 
     const content = data.choices[0].message.content
-    console.log("Raw content from OpenAI:", content)
+    console.log("Raw content from API:", content)
 
     const sections = parseScriptData(content)
 
